@@ -1,11 +1,11 @@
 {
   "name": "adofai-custom-loader",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "A Dance of Fire and Ice - 玩家自制谱加载器与编辑器",
   "main": "index.html",
   "scripts": {
     "start": "npx http-server -p 8080 -c-1",
-    "test": "node tests/smoke-test.js && node tests/compat-test.js"
+    "test": "node tests/smoke-test.js && node tests/compat-test.js && node tests/clock-test.js"
   },
   "keywords": [
     "adofai",

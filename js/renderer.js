@@ -53,6 +53,104 @@
         track: '#debb7b',
         trackBright: '#f6dda9'
       };
+
+      // 轨道贴图（程序化无缝生成；若 assets/track-texture.png 存在则优先使用）
+      this.trackPattern = null;
+      this._trackTexture = null;
+      this._planetTrail = { fire: [], ice: [] };
+      this._buildTrackTexture();
+      this._loadTrackTextureImage();
+    }
+
+    /* ---------------- 轨道贴图 ---------------- */
+
+    /**
+     * 程序化生成无缝霓虹轨道纹理（256×96）
+     * 横向（沿轨道流向）重复，纵向（轨道宽度）呈明暗立体带
+     */
+    _buildTrackTexture() {
+      const W = 256, H = 96;
+      const cv = document.createElement('canvas');
+      cv.width = W;
+      cv.height = H;
+      const g = cv.getContext('2d');
+
+      // 轨道截面明暗：边缘暗、中线亮，形成圆润金属带
+      const band = g.createLinearGradient(0, 0, 0, H);
+      band.addColorStop(0, 'rgba(222,187,123,0.10)');
+      band.addColorStop(0.20, 'rgba(246,221,169,0.50)');
+      band.addColorStop(0.50, 'rgba(255,244,214,0.86)');
+      band.addColorStop(0.80, 'rgba(246,221,169,0.50)');
+      band.addColorStop(1, 'rgba(222,187,123,0.10)');
+      g.fillStyle = band;
+      g.fillRect(0, 0, W, H);
+
+      // 沿流向的横向流光条纹（首尾透明，保证无缝拼接）
+      for (let x = 0; x < W; x += 32) {
+        const stripe = g.createLinearGradient(x, 0, x + 24, 0);
+        stripe.addColorStop(0, 'rgba(255,255,255,0)');
+        stripe.addColorStop(0.55, 'rgba(255,255,255,0.34)');
+        stripe.addColorStop(0.82, 'rgba(255,250,230,0.10)');
+        stripe.addColorStop(1, 'rgba(255,255,255,0)');
+        g.fillStyle = stripe;
+        g.fillRect(x, 2, 28, H - 4);
+      }
+
+      // 中线高光
+      const core = g.createLinearGradient(0, 0, 0, H);
+      core.addColorStop(0.40, 'rgba(255,255,255,0)');
+      core.addColorStop(0.50, 'rgba(255,255,255,0.78)');
+      core.addColorStop(0.60, 'rgba(255,255,255,0)');
+      g.fillStyle = core;
+      g.fillRect(0, 0, W, H);
+
+      // 细颗粒，避免大面积死板
+      for (let i = 0; i < 120; i++) {
+        const px = Math.random() * W;
+        const py = Math.random() * H;
+        g.fillStyle = `rgba(255,255,255,${0.04 + Math.random() * 0.08})`;
+        g.fillRect(px, py, 1.5, 1);
+      }
+
+      this._trackTexture = cv;
+      this.trackPattern = this.ctx.createPattern(cv, 'repeat');
+    }
+
+    /** 若存在外部贴图则覆盖程序化纹理（缺失时静默回退） */
+    _loadTrackTextureImage() {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          this.trackPattern = this.ctx.createPattern(img, 'repeat');
+        } catch (e) { /* 保留程序化纹理 */ }
+      };
+      img.onerror = () => { /* 无外部贴图，使用程序化纹理 */ };
+      img.src = 'assets/track-texture.png';
+    }
+
+    /**
+     * 用贴图填充一段轨道带（沿线段方向对齐，纹理横跨轨道宽度）
+     */
+    _fillTrackBand(sx, sy, ex, ey, width) {
+      const ctx = this.ctx;
+      const dx = ex - sx, dy = ey - sy;
+      const len = Math.hypot(dx, dy);
+      if (len < 0.6) return;
+      const ang = Math.atan2(dy, dx);
+      const pat = this.trackPattern;
+
+      ctx.save();
+      ctx.translate(sx, sy);
+      ctx.rotate(ang);
+      if (pat && typeof DOMMatrix !== 'undefined') {
+        try {
+          const k = width / 96; // 纹理高度映射到轨道宽度
+          pat.setTransform(new DOMMatrix().translate(this.time * 26, 0).scale(k, k));
+        } catch (e) { /* 忽略纹理变换失败 */ }
+      }
+      ctx.fillStyle = pat || 'rgba(246,221,169,0.55)';
+      ctx.fillRect(0, -width / 2, len, width);
+      ctx.restore();
     }
 
     /* ---------------- 基础尺寸 / 坐标 ---------------- */
@@ -81,6 +179,7 @@
       this.selectedTile = -1;
       this.effects = [];
       this.judgment = null;
+      this._planetTrail = { fire: [], ice: [] };
       this.camInit = false;
       this._updateCameraTarget();
       const t = this._camTarget;
@@ -275,36 +374,61 @@
         const dx = p[0] - this.cam.x, dy = p[1] - this.cam.y;
         return dx * dx + dy * dy < R * R;
       };
+      const visible = (i) => {
+        const a = pos[i], b = pos[i + 1];
+        return !!(a && b && (near(a) || near(b)));
+      };
 
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
 
-      // 未到达部分：暗色轨道
-      ctx.strokeStyle = 'rgba(222,187,123,0.38)';
-      ctx.lineWidth = lw;
+      // 1) 轨道承托底：深色宽底，衬托贴图亮度
+      ctx.strokeStyle = 'rgba(20,18,36,0.88)';
+      ctx.lineWidth = lw * 1.52;
       ctx.beginPath();
       for (let i = 0; i < n; i++) {
-        const a = pos[i], b = pos[i + 1];
-        if (!a || !b || (!near(a) && !near(b))) continue;
-        const sa = this.worldToScreen(a[0], a[1]);
-        const sb = this.worldToScreen(b[0], b[1]);
-        ctx.moveTo(sa[0], sa[1]); ctx.lineTo(sb[0], sb[1]);
+        if (!visible(i)) continue;
+        const sa = this.worldToScreen(pos[i][0], pos[i][1]);
+        const sb = this.worldToScreen(pos[i + 1][0], pos[i + 1][1]);
+        ctx.moveTo(sa[0], sa[1]);
+        ctx.lineTo(sb[0], sb[1]);
       }
       ctx.stroke();
 
-      // 已走过部分：高亮 + 辉光
+      // 2) 贴图轨道带：逐段沿流向填充，纹理横跨轨道宽度
+      for (let i = 0; i < n; i++) {
+        if (!visible(i)) continue;
+        const sa = this.worldToScreen(pos[i][0], pos[i][1]);
+        const sb = this.worldToScreen(pos[i + 1][0], pos[i + 1][1]);
+        this._fillTrackBand(sa[0], sa[1], sb[0], sb[1], lw);
+      }
+
+      // 3) 尚未到达的轨道整体压暗
+      ctx.strokeStyle = 'rgba(5,7,16,0.55)';
+      ctx.lineWidth = lw * 1.0;
+      ctx.beginPath();
+      for (let i = cur; i < n; i++) {
+        if (!visible(i)) continue;
+        const sa = this.worldToScreen(pos[i][0], pos[i][1]);
+        const sb = this.worldToScreen(pos[i + 1][0], pos[i + 1][1]);
+        ctx.moveTo(sa[0], sa[1]);
+        ctx.lineTo(sb[0], sb[1]);
+      }
+      ctx.stroke();
+
+      // 4) 已走过部分：中线流光 + 辉光
       ctx.save();
-      ctx.shadowColor = 'rgba(246,221,169,0.85)';
-      ctx.shadowBlur = 0.30 * this.scale;
+      ctx.shadowColor = 'rgba(255,236,190,0.9)';
+      ctx.shadowBlur = 0.24 * this.scale;
       ctx.strokeStyle = this.colors.trackBright;
-      ctx.lineWidth = lw;
+      ctx.lineWidth = lw * 0.42;
       ctx.beginPath();
       for (let i = 0; i < cur; i++) {
-        const a = pos[i], b = pos[i + 1];
-        if (!a || !b || (!near(a) && !near(b))) continue;
-        const sa = this.worldToScreen(a[0], a[1]);
-        const sb = this.worldToScreen(b[0], b[1]);
-        ctx.moveTo(sa[0], sa[1]); ctx.lineTo(sb[0], sb[1]);
+        if (!visible(i)) continue;
+        const sa = this.worldToScreen(pos[i][0], pos[i][1]);
+        const sb = this.worldToScreen(pos[i + 1][0], pos[i + 1][1]);
+        ctx.moveTo(sa[0], sa[1]);
+        ctx.lineTo(sb[0], sb[1]);
       }
       ctx.stroke();
       ctx.restore();
@@ -429,44 +553,125 @@
       const [sx, sy] = this.worldToScreen(p[0], p[1]);
       const orbitPx = orbitR * this.scale;
 
-      // 轨道环
+      // 轨道环：静态底环 + 旋转虚线环
+      ctx.save();
       ctx.beginPath();
       ctx.arc(sx, sy, orbitPx, 0, TAU);
-      ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+      ctx.strokeStyle = 'rgba(255,255,255,0.08)';
       ctx.lineWidth = 1.5;
       ctx.stroke();
 
-      const c = Math.cos(axis), s = Math.sin(axis);
-      const p1 = this.worldToScreen(p[0] + c * orbitR, p[1] + s * orbitR);
-      const p2 = this.worldToScreen(p[0] - c * orbitR, p[1] - s * orbitR);
+      ctx.beginPath();
+      ctx.arc(sx, sy, orbitPx, 0, TAU);
+      ctx.setLineDash([7, 9]);
+      ctx.lineDashOffset = -this.time * 34;
+      ctx.strokeStyle = 'rgba(255,255,255,0.16)';
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+      ctx.restore();
 
-      this._drawPlanet(p1[0], p1[1], planetR * this.scale, this.colors.fire);
-      this._drawPlanet(p2[0], p2[1], planetR * this.scale, this.colors.ice);
+      const wx1 = p[0] + Math.cos(axis) * orbitR;
+      const wy1 = p[1] + Math.sin(axis) * orbitR;
+      const wx2 = p[0] - Math.cos(axis) * orbitR;
+      const wy2 = p[1] - Math.sin(axis) * orbitR;
+
+      const p1 = this.worldToScreen(wx1, wy1);
+      const p2 = this.worldToScreen(wx2, wy2);
+
+      // 拖尾（世界坐标记录，避免镜头旋转造成拖影错位）
+      this._updateTrail('fire', wx1, wy1, planetR);
+      this._updateTrail('ice', wx2, wy2, planetR);
+      this._drawTrail('fire', this.colors.fire);
+      this._drawTrail('ice', this.colors.ice);
+
+      this._drawPlanet(p1[0], p1[1], planetR * this.scale, this.colors.fire, 0);
+      this._drawPlanet(p2[0], p2[1], planetR * this.scale, this.colors.ice, Math.PI);
     }
 
-    _drawPlanet(x, y, r, color) {
+    _updateTrail(key, wx, wy, r) {
+      const list = this._planetTrail[key];
+      const last = list[list.length - 1];
+      if (!last || Math.hypot(wx - last.x, wy - last.y) > 0.012) {
+        list.push({ x: wx, y: wy, t: this.time, r });
+        if (list.length > 16) list.shift();
+      }
+      while (list.length && this.time - list[0].t > 0.20) list.shift();
+    }
+
+    _drawTrail(key, color) {
       const ctx = this.ctx;
-      const glow = ctx.createRadialGradient(x, y, 0, x, y, r * 3.2);
-      glow.addColorStop(0, color);
-      glow.addColorStop(0.35, this._alpha(color, 0.45));
+      const list = this._planetTrail[key];
+      if (list.length < 2) return;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.lineCap = 'round';
+      for (let i = 0; i < list.length - 1; i++) {
+        const a = list[i], b = list[i + 1];
+        const k = clamp(1 - (this.time - a.t) / 0.20, 0, 1);
+        if (k <= 0) continue;
+        const sa = this.worldToScreen(a.x, a.y);
+        const sb = this.worldToScreen(b.x, b.y);
+        ctx.strokeStyle = this._alpha(color, k * 0.26);
+        ctx.lineWidth = Math.max(1, a.r * this.scale * 0.62 * k);
+        ctx.beginPath();
+        ctx.moveTo(sa[0], sa[1]);
+        ctx.lineTo(sb[0], sb[1]);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+
+    _drawPlanet(x, y, r, color, phase) {
+      const ctx = this.ctx;
+      const pulse = 1 + Math.sin(this.time * 6 + phase) * 0.05;
+      const rr = r * pulse;
+
+      // 外层辉光（叠加混合）
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const glow = ctx.createRadialGradient(x, y, rr * 0.2, x, y, rr * 3.6);
+      glow.addColorStop(0, this._alpha(color, 0.55));
+      glow.addColorStop(0.32, this._alpha(color, 0.26));
       glow.addColorStop(1, 'rgba(0,0,0,0)');
       ctx.fillStyle = glow;
       ctx.beginPath();
-      ctx.arc(x, y, r * 3.2, 0, TAU);
+      ctx.arc(x, y, rr * 3.6, 0, TAU);
       ctx.fill();
+      ctx.restore();
 
-      const body = ctx.createRadialGradient(x - r * 0.35, y - r * 0.35, r * 0.1, x, y, r);
+      // 本体：偏左上的光源渐变
+      const body = ctx.createRadialGradient(x - rr * 0.36, y - rr * 0.38, rr * 0.08, x, y, rr);
       body.addColorStop(0, '#ffffff');
-      body.addColorStop(0.35, color);
-      body.addColorStop(1, this._alpha(color, 0.85));
+      body.addColorStop(0.30, this._alpha(color, 0.96));
+      body.addColorStop(0.78, color);
+      body.addColorStop(1, this._alpha(color, 0.70));
       ctx.fillStyle = body;
       ctx.beginPath();
-      ctx.arc(x, y, r, 0, TAU);
+      ctx.arc(x, y, rr, 0, TAU);
       ctx.fill();
 
-      ctx.strokeStyle = 'rgba(255,255,255,0.65)';
-      ctx.lineWidth = 1.2;
+      // 外圈描边
+      ctx.beginPath();
+      ctx.arc(x, y, rr * 1.06, 0, TAU);
+      ctx.strokeStyle = this._alpha(color, 0.55);
+      ctx.lineWidth = Math.max(1, rr * 0.07);
       ctx.stroke();
+
+      // 左上边缘高光弧
+      ctx.beginPath();
+      ctx.arc(x, y, rr * 0.98, Math.PI * 1.02, Math.PI * 1.62);
+      ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+      ctx.lineWidth = Math.max(1, rr * 0.11);
+      ctx.stroke();
+
+      // 内核亮点
+      const core = ctx.createRadialGradient(x, y, 0, x, y, rr * 0.5);
+      core.addColorStop(0, 'rgba(255,255,255,0.95)');
+      core.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = core;
+      ctx.beginPath();
+      ctx.arc(x, y, rr * 0.5, 0, TAU);
+      ctx.fill();
     }
 
     _alpha(hex, a) {

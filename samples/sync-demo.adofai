@@ -1,0 +1,21 @@
+{
+	"version": 1,
+	"settings": {
+		"version": 1,
+		"artist": "Sync Test",
+		"song": "sync-demo",
+		"bpm": 60,
+		"volume": 100,
+		"offset": 0,
+		"pitch": 100,
+		"hitsound": "Kick",
+		"trackColor": "debb7b",
+		"trackColorType": "Single",
+		"trackStyle": "Neon",
+		"trackGlowIntensity": 100,
+		"backgroundColor": "000000"
+	},
+	"angleData": [180, 180, 180, 180, 180, 180, 180, 180, 180],
+	"actions": [],
+	"decorations": []
+}

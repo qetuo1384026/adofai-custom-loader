@@ -34,6 +34,7 @@
     player.onComplete = (stats) => {
       toast(`谱面完成 · 准确率 ${stats.accuracy.toFixed(1)}% · 最高连击 ${stats.maxCombo}`);
     };
+    player.onAudioChange = () => updateAudioStatus();
 
     editor.onChange = () => {
       refreshTilePanel();
@@ -51,6 +52,24 @@
     syncUI();
     refreshTilePanel();
     updateHud();
+    startDemoFromQuery();
+  }
+
+  /** 支持 ?demo=sync|sample 直接载入示例（含音频/自动播放），便于验证 */
+  function startDemoFromQuery() {
+    const params = new URLSearchParams(location.search);
+    const demo = params.get('demo');
+    if (!demo) return;
+    const autoplay = params.get('autoplay') === '1';
+    if (autoplay) player.setAutoplay(true);
+    const map = { sync: 'samples/sync-demo.adofai', sample: 'samples/sample-level.adofai' };
+    const url = map[demo] || (demo.endsWith('.adofai') ? demo : null);
+    if (!url) return;
+    loadUrl(url)
+      .then((ok) => {
+        if (ok && autoplay) player.play();
+      })
+      .catch((err) => toast(err.message, true));
   }
 
   function sizeCanvas() {
@@ -76,9 +95,82 @@
     requestAnimationFrame(frame);
   }
 
+  /* ---------------- 文件工具 ---------------- */
+
+  const AUDIO_EXTS = ['ogg', 'mp3', 'wav', 'm4a', 'flac', 'aac', 'webm'];
+  const filePathMap = new WeakMap();
+
+  function extOf(name) {
+    const m = /\.([a-z0-9]+)$/i.exec(name || '');
+    return m ? m[1].toLowerCase() : '';
+  }
+  function isChartFile(f) {
+    const e = extOf(f.name);
+    return e === 'adofai' || e === 'json';
+  }
+  function isAudioFile(f) {
+    return AUDIO_EXTS.includes(extOf(f.name)) || /^audio\//.test(f.type || '');
+  }
+  function baseName(name) {
+    return (name || '').replace(/^.*[\\/]/, '').replace(/\.[^.]+$/, '');
+  }
+  function normKey(s) {
+    return (s || '').toString().toLowerCase().replace(/[\s_\-·.,()\[\]【】（）]+/g, '');
+  }
+  function relPathOf(f) {
+    return f.webkitRelativePath || filePathMap.get(f) || '';
+  }
+
+  /**
+   * 音频匹配打分：settings.song > 谱面同名 > audio/song/bgm/music 关键字 > ogg 优先
+   */
+  function scoreAudio(file, wantSong, chartName) {
+    const n = normKey(baseName(file.name));
+    let s = 0;
+    if (wantSong) {
+      if (n === wantSong) s += 100;
+      else if (n.includes(wantSong) || wantSong.includes(n)) s += 55;
+    }
+    if (chartName) {
+      if (n === chartName) s += 80;
+      else if (n.includes(chartName) || chartName.includes(n)) s += 40;
+    }
+    if (/^(audio|song|bgm|music|soundtrack)$/.test(n)) s += 25;
+    if (/\.ogg$/i.test(file.name)) s += 6;
+    return s;
+  }
+
+  function pickAudioFile(files, settings, chartName) {
+    const audios = files.filter(isAudioFile);
+    if (audios.length === 0) return null;
+    const want = normKey(settings && settings.song);
+    const cn = normKey(baseName(chartName));
+    let best = null, bestScore = 0;
+    for (const f of audios) {
+      const sc = scoreAudio(f, want, cn);
+      if (sc > bestScore) { bestScore = sc; best = f; }
+    }
+    if (best && bestScore > 0) return best;
+    return audios.length === 1 ? audios[0] : null;
+  }
+
+  function pickChartFile(files, hintName) {
+    const charts = files.filter(isChartFile);
+    if (charts.length === 0) return null;
+    if (hintName) {
+      const exact = charts.find(f => f.name === hintName);
+      if (exact) return exact;
+    }
+    charts.sort((a, b) =>
+      relPathOf(a).split(/[\\/]/).length - relPathOf(b).split(/[\\/]/).length ||
+      a.name.length - b.name.length
+    );
+    return charts[0];
+  }
+
   /* ---------------- 文件加载 ---------------- */
 
-  async function loadFromText(text, name) {
+  async function loadFromText(text, name, opts = {}) {
     try {
       const lvl = new AdofaiLevel(text);
       if (lvl.tileCount === 0) throw new Error('谱面中没有瓷砖数据（pathData / angleData 为空）');
@@ -89,33 +181,168 @@
       refreshTilePanel();
       updateHud();
       syncUI();
-      toast(`已加载 ${fileName} · ${lvl.tileCount} 格 · BPM ${lvl.settings.bpm}`);
+
+      // 谱面 + 音频联动：优先匹配同批文件，其次尝试同目录同名音频
+      const audioFiles = opts.audioFiles || [];
+      const picked = pickAudioFile(audioFiles, lvl.settings, fileName);
+      let audioLoaded = false;
+      if (opts.audioUrl) {
+        audioLoaded = await player.loadAudioUrl(opts.audioUrl);
+      } else if (picked) {
+        audioLoaded = await loadAudioFile(picked, { silent: true });
+      } else {
+        audioLoaded = await trySiblingAudio(opts.baseDir, lvl.settings, fileName);
+      }
+      if (!audioLoaded) player.clearAudio();
+      updateAudioStatus();
+
+      toast(`已加载 ${fileName} · ${lvl.tileCount} 格 · BPM ${lvl.settings.bpm}` +
+        (audioLoaded ? ' · 音频已自动匹配' : ' · 未找到音频'));
+      return true;
     } catch (err) {
       console.error(err);
       toast('加载失败：' + err.message, true);
+      return false;
     }
+  }
+
+  async function loadAudioFile(file, opts = {}) {
+    const ok = await player.loadAudio(file);
+    if (!ok) toast('音频解码失败：' + file.name, true);
+    else if (!opts.silent) toast(`音频已加载：${file.name}`);
+    updateAudioStatus();
+    return ok;
+  }
+
+  /** 尝试加载与谱面同目录、同名的音频（仅 http(s) 环境） */
+  async function trySiblingAudio(baseDir, settings, chartName) {
+    if (!/^https?:$/.test(location.protocol)) return false;
+    const dir = (baseDir || '').replace(/\/+$/, '');
+    const song = settings && settings.song ? String(settings.song).trim() : '';
+    const chartBase = baseName(chartName);
+    const names = [];
+    if (song) names.push(song);
+    if (chartBase && chartBase !== song) names.push(chartBase);
+    const exts = ['ogg', 'mp3', 'wav', 'm4a'];
+    for (const n of names) {
+      for (const ext of exts) {
+        const url = (dir ? dir + '/' : '') + n + '.' + ext;
+        if (await player.loadAudioUrl(url)) return true;
+      }
+    }
+    return false;
+  }
+
+  /** 从 URL 加载谱面（用于演示 / 自动化验证） */
+  async function loadUrl(chartUrl, opts = {}) {
+    const res = await fetch(chartUrl);
+    if (!res.ok) throw new Error('谱面读取失败：' + chartUrl);
+    const dir = chartUrl.includes('/') ? chartUrl.slice(0, chartUrl.lastIndexOf('/')) : '';
+    return loadFromText(await res.text(), chartUrl.split('/').pop(), {
+      baseDir: dir,
+      audioUrl: opts.audioUrl
+    });
+  }
+
+  /** 统一处理文件/文件夹选择结果 */
+  async function handleFiles(input, opts = {}) {
+    const files = Array.from(input || []);
+    if (files.length === 0) return;
+    const charts = files.filter(isChartFile);
+    const audios = files.filter(isAudioFile);
+
+    if (charts.length === 0) {
+      if (audios.length > 0) { await loadAudioFile(audios[0]); return; }
+      toast('未找到 .adofai 谱面或音频文件', true);
+      return;
+    }
+
+    const chart = pickChartFile(charts, opts.chartName);
+    const path = relPathOf(chart);
+    const baseDir = opts.baseDir !== undefined
+      ? opts.baseDir
+      : (path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '');
+
+    let text;
+    try { text = await chart.text(); } catch (e) { toast('读取谱面失败：' + chart.name, true); return; }
+    await loadFromText(text, chart.name, { audioFiles: audios, baseDir });
   }
 
   async function loadFile(file) {
     if (!file) return;
-    const text = await file.text();
-    await loadFromText(text, file.name);
+    await handleFiles([file]);
+  }
+
+  /** 读取拖拽目录（递归） */
+  function readAllEntries(reader) {
+    return new Promise((resolve) => {
+      const out = [];
+      const next = () => reader.readEntries((entries) => {
+        if (entries.length === 0) return resolve(out);
+        out.push(...entries);
+        next();
+      }, () => resolve(out));
+      next();
+    });
+  }
+
+  async function walkEntry(entry, prefix, out) {
+    if (entry.isFile) {
+      const file = await new Promise((res, rej) => entry.file(res, rej));
+      filePathMap.set(file, prefix ? prefix + '/' + file.name : file.name);
+      out.push(file);
+    } else if (entry.isDirectory) {
+      const entries = await readAllEntries(entry.createReader());
+      const path = prefix ? prefix + '/' + entry.name : entry.name;
+      for (const e of entries) await walkEntry(e, path, out);
+    }
+  }
+
+  async function filesFromDataTransfer(dt) {
+    const items = dt.items ? Array.from(dt.items) : [];
+    const entries = items
+      .map(it => (it.webkitGetAsEntry ? it.webkitGetAsEntry() : null))
+      .filter(Boolean);
+    if (entries.length > 0) {
+      const out = [];
+      for (const e of entries) await walkEntry(e, '', out);
+      if (out.length > 0) return out;
+    }
+    return Array.from(dt.files || []);
+  }
+
+  function updateAudioStatus() {
+    const el = $('audioStatus');
+    if (!el) return;
+    if (player.hasAudio) {
+      el.textContent = `音频 · ${player.audioName || '已加载'}`;
+      el.className = 'audio-status ok';
+      el.title = '播放时以音频播放头为主时钟，确保音画同步';
+    } else {
+      el.textContent = '无音频';
+      el.className = 'audio-status none';
+      el.title = '未匹配到音频，可手动加载 ogg/mp3/wav';
+    }
   }
 
   /* ---------------- 工具栏 ---------------- */
 
   function bindToolbar() {
     $('loadBtn').addEventListener('click', () => $('fileInput').click());
-    $('fileInput').addEventListener('change', (e) => {
-      loadFile(e.target.files[0]);
+    $('fileInput').addEventListener('change', async (e) => {
+      await handleFiles(e.target.files);
+      e.target.value = '';
+    });
+
+    $('folderBtn').addEventListener('click', () => $('folderInput').click());
+    $('folderInput').addEventListener('change', async (e) => {
+      await handleFiles(e.target.files);
       e.target.value = '';
     });
 
     $('demoBtn').addEventListener('click', async () => {
       try {
-        const res = await fetch('samples/sample-level.adofai');
-        if (!res.ok) throw new Error('演示谱面读取失败');
-        await loadFromText(await res.text(), 'sample-level.adofai');
+        await loadUrl('samples/sample-level.adofai');
       } catch (err) {
         toast(err.message, true);
       }
@@ -124,9 +351,7 @@
     $('audioBtn').addEventListener('click', () => $('audioInput').click());
     $('audioInput').addEventListener('change', async (e) => {
       const f = e.target.files[0];
-      if (!f) return;
-      const ok = await player.loadAudio(f);
-      toast(ok ? `音频已加载：${f.name}` : '音频解码失败', !ok);
+      if (f) await loadAudioFile(f);
       e.target.value = '';
     });
 
@@ -310,13 +535,9 @@
       wrap.addEventListener(ev, (e) => { e.preventDefault(); wrap.classList.remove('dropping'); });
     });
     wrap.addEventListener('drop', async (e) => {
-      const f = e.dataTransfer.files[0];
-      if (!f) return;
-      if (/\.adofai$/i.test(f.name) || /\.json$/i.test(f.name)) loadFile(f);
-      else if (/audio\//.test(f.type)) {
-        const ok = await player.loadAudio(f);
-        toast(ok ? `音频已加载：${f.name}` : '音频解码失败', !ok);
-      } else toast('请拖入 .adofai 谱面或音频文件', true);
+      const files = await filesFromDataTransfer(e.dataTransfer);
+      if (files.length === 0) return;
+      await handleFiles(files);
     });
   }
 
@@ -334,6 +555,7 @@
     const badge = $('modeBadge');
     badge.textContent = JUDGMENT_MODES[player.mode].name;
     badge.style.color = JUDGMENT_MODES[player.mode].color;
+    updateAudioStatus();
     updateHud();
   }
 
@@ -347,6 +569,24 @@
     if (cEl) cEl.textContent = s.combo;
     const aEl = $('accText');
     if (aEl) aEl.textContent = s.accuracy.toFixed(1) + '%';
+
+    const clockEl = $('clockText');
+    if (clockEl) {
+      if (player.isPlaying && player.hasAudio) {
+        const info = player.getClockInfo();
+        if (info.mode === 'audio' && info.driftMs != null) {
+          const drift = info.driftMs;
+          clockEl.textContent = '同步 ' + (drift >= 0 ? '+' : '') + drift.toFixed(1) + 'ms';
+          clockEl.className = 'clock ok';
+        } else {
+          clockEl.textContent = '同步 回退';
+          clockEl.className = 'clock warn';
+        }
+      } else {
+        clockEl.textContent = '同步 —';
+        clockEl.className = 'clock';
+      }
+    }
 
     $('statsPanel').innerHTML = `
       <div class="stat-row"><span>总格数</span><b>${s.total}</b></div>
@@ -401,7 +641,13 @@
     get player() { return player; },
     get editor() { return editor; },
     get level() { return level; },
+    get fileName() { return fileName; },
     loadFromText,
-    loadFile
+    loadFile,
+    loadUrl,
+    handleFiles,
+    pickAudioFile,
+    loadAudioFile,
+    updateAudioStatus
   };
 })();

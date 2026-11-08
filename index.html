@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>A Dance of Fire and Ice · 自制谱加载器 v1.1.0</title>
+  <title>A Dance of Fire and Ice · 自制谱加载器 v1.2.0</title>
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -14,16 +14,19 @@
         <span class="logo-fire">●</span><span class="logo-ice">●</span>
         <span class="brand-text">A Dance of Fire and Ice</span>
         <span class="brand-sub">自制谱加载器</span>
-        <span class="version">v1.1.0</span>
+        <span class="version">v1.2.0</span>
       </div>
 
       <div class="group">
         <button id="loadBtn" class="btn primary">加载谱面</button>
-        <input type="file" id="fileInput" accept=".adofai,.json">
+        <input type="file" id="fileInput" accept=".adofai,.json,.ogg,.mp3,.wav,.m4a,.flac,.aac,.webm" multiple>
+        <button id="folderBtn" class="btn">文件夹</button>
+        <input type="file" id="folderInput" webkitdirectory directory multiple>
         <button id="demoBtn" class="btn">演示谱面</button>
         <button id="audioBtn" class="btn">音频</button>
-        <input type="file" id="audioInput" accept="audio/*">
+        <input type="file" id="audioInput" accept="audio/*,.ogg,.mp3,.wav,.m4a,.flac">
         <button id="saveBtn" class="btn" disabled>保存</button>
+        <span class="audio-status none" id="audioStatus">无音频</span>
       </div>
 
       <div class="group">
@@ -60,6 +63,7 @@
             <span id="timeText">0:00.0 / 0:00.0</span>
             <span class="hud-combo">连击 <b id="comboText">0</b></span>
             <span>准确率 <b id="accText">100.0%</b></span>
+            <span id="clockText" class="clock">同步 —</span>
           </div>
         </div>
         <div class="drop-hint">松开以加载谱面</div>

@@ -56,6 +56,23 @@ html, body {
   border-radius: 10px;
   padding: 1px 8px;
 }
+.audio-status {
+  font-size: 11px;
+  border-radius: 10px;
+  padding: 2px 9px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  max-width: 168px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.audio-status.ok {
+  color: #8affc0;
+  border-color: rgba(138,255,192,0.45);
+  background: rgba(138,255,192,0.08);
+}
+.audio-status.none { color: rgba(255,255,255,0.35); }
 
 .group { display: flex; align-items: center; gap: 8px; padding-left: 16px; border-left: 1px solid var(--line); }
 .group:first-of-type { border-left: none; padding-left: 0; }
@@ -161,6 +178,9 @@ input[type="file"] { display: none; }
 }
 .hud-meta b { color: var(--gold-bright); font-weight: 700; }
 .hud-combo b { color: var(--ice); }
+.hud-meta .clock { color: rgba(255,255,255,0.40); }
+.hud-meta .clock.ok { color: #8affc0; }
+.hud-meta .clock.warn { color: #ffd166; }
 
 /* ---------- 侧栏 ---------- */
 .sidebar {
