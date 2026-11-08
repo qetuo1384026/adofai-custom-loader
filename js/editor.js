@@ -39,8 +39,10 @@ class AdofaiEditor {
   selectTile(index) {
     this.selectedTile = index;
     this.renderer.selectedTile = index;
-    if (index >= 0 && this.level) {
-      this.renderer.centerOnTile(index);
+    if (index >= 0 && this.level && !this.player.isPlaying) {
+      this.renderer.currentTileIndex = index;
+      this.renderer.progress = 0;
+      this.renderer.isPlaying = false;
     }
   }
 
@@ -162,8 +164,11 @@ class AdofaiEditor {
   }
 
   _notifyChange() {
-    if (this.player) {
-      this.player.setLevel(this.level);
+    if (this.player && this.player.isPlaying) this.player.stop();
+    // 重建渲染数据，但镜头停留在当前选中瓷砖
+    this.renderer.setLevel(this.level);
+    if (this.selectedTile >= 0 && this.level) {
+      this.renderer.currentTileIndex = Math.min(this.selectedTile, this.level.tileCount - 1);
     }
     if (this.onChange) this.onChange();
   }

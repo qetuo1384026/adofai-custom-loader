@@ -1,0 +1,12 @@
+{
+	"version": 1,
+	"settings": {
+		"bpm": 90,
+		"artist": "PathData Test",
+		"song": "pathdata",
+		"trackColor": "ff4d6d"
+	},
+	"pathData": "RRRRUUUUDDDDLLLLZZZZCCCCQQQQEEEE",
+	"actions": [],
+	"decorations": []
+}

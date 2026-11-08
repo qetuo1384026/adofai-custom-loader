@@ -3,95 +3,109 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ADOFAI 自制谱加载器 v1.0.0</title>
+  <title>A Dance of Fire and Ice · 自制谱加载器 v1.1.0</title>
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
   <div class="app">
-    <!-- 顶部工具栏 -->
-    <div class="toolbar">
-      <h1>🔥❄️ ADOFAI 自制谱加载器</h1>
+    <!-- 顶部栏 -->
+    <header class="topbar">
+      <div class="brand">
+        <span class="logo-fire">●</span><span class="logo-ice">●</span>
+        <span class="brand-text">A Dance of Fire and Ice</span>
+        <span class="brand-sub">自制谱加载器</span>
+        <span class="version">v1.1.0</span>
+      </div>
 
-      <div class="toolbar-group">
-        <button id="loadBtn" class="primary">📂 加载谱面</button>
+      <div class="group">
+        <button id="loadBtn" class="btn primary">加载谱面</button>
         <input type="file" id="fileInput" accept=".adofai,.json">
-        <button id="audioInputBtn" onclick="document.getElementById('audioInput').click()">🎵 音频</button>
+        <button id="demoBtn" class="btn">演示谱面</button>
+        <button id="audioBtn" class="btn">音频</button>
         <input type="file" id="audioInput" accept="audio/*">
-        <button id="saveBtn">💾 保存</button>
+        <button id="saveBtn" class="btn" disabled>保存</button>
       </div>
 
-      <div class="toolbar-group">
-        <button id="playBtn">▶ 播放</button>
-        <button id="pauseBtn" disabled>⏸ 暂停</button>
-        <button id="stopBtn" disabled>⏹ 停止</button>
+      <div class="group">
+        <button id="playBtn" class="btn" disabled>播放</button>
+        <button id="pauseBtn" class="btn" disabled>暂停</button>
+        <button id="stopBtn" class="btn" disabled>停止</button>
+        <button id="resetBtn" class="btn">重置</button>
       </div>
 
-      <div class="toolbar-group">
-        <label class="checkbox">
-          <input type="checkbox" id="autoplayToggle"> 自动播放
-        </label>
-        <label class="checkbox">
-          <input type="checkbox" id="invincibleToggle"> 无敌模式
-        </label>
-        <select id="judgmentSelect">
-          <option value="wide">宽判</option>
-          <option value="standard" selected>标判</option>
-          <option value="strict">严判</option>
+      <div class="group">
+        <label class="switch"><input type="checkbox" id="autoplayToggle"><span>自动播放</span></label>
+        <label class="switch"><input type="checkbox" id="invincibleToggle"><span>无敌模式</span></label>
+        <select id="judgmentSelect" class="select" title="判定窗口">
+          <option value="wide">宽判 ±150ms</option>
+          <option value="standard" selected>标判 ±100ms</option>
+          <option value="strict">严判 ±60ms</option>
         </select>
       </div>
 
-      <div class="toolbar-group">
-        <button id="zoomOutBtn">🔍-</button>
-        <button id="zoomInBtn">🔍+</button>
+      <div class="group right">
+        <span class="mode-badge" id="modeBadge">标判</span>
+        <label class="switch"><input type="checkbox" id="gridToggle" checked><span>网格</span></label>
+        <button id="zoomOutBtn" class="btn icon" title="缩小">−</button>
+        <button id="zoomInBtn" class="btn icon" title="放大">+</button>
       </div>
-    </div>
+    </header>
 
-    <!-- 主区域 -->
-    <div class="main">
-      <div class="canvas-container">
+    <main class="main">
+      <section class="canvas-wrap" id="canvasWrap">
         <canvas id="gameCanvas"></canvas>
-      </div>
+        <div class="hud">
+          <div class="hud-track"><div class="hud-fill" id="progressFill"></div></div>
+          <div class="hud-meta">
+            <span id="timeText">0:00.0 / 0:00.0</span>
+            <span class="hud-combo">连击 <b id="comboText">0</b></span>
+            <span>准确率 <b id="accText">100.0%</b></span>
+          </div>
+        </div>
+        <div class="drop-hint">松开以加载谱面</div>
+      </section>
 
-      <div class="sidebar">
-        <div class="panel-section">
+      <aside class="sidebar">
+        <section class="card">
           <h3>瓷砖信息</h3>
-          <div id="tileInfo"><div class="muted">未选中瓷砖</div></div>
-        </div>
-
-        <div class="panel-section">
-          <h3>角度编辑</h3>
-          <div class="angle-buttons" id="angleButtons"></div>
-        </div>
-
-        <div class="panel-section">
-          <h3>编辑操作</h3>
-          <div class="edit-actions">
-            <button id="insertTileBtn">插入</button>
-            <button id="nudgeLeftBtn">-15°</button>
-            <button id="nudgeRightBtn">+15°</button>
-            <button id="deleteTileBtn">删除</button>
+          <div id="tilePanel"><div class="muted">未选中瓷砖 · 点击轨道上的方块选择</div></div>
+          <div class="edit-grid">
+            <button id="prevBtn" class="btn small">◀ 上一格</button>
+            <button id="nextBtn" class="btn small">下一格 ▶</button>
+            <button id="insertBtn" class="btn small">插入</button>
+            <button id="deleteBtn" class="btn small">删除</button>
+            <button id="nudgeLBtn" class="btn small">−15°</button>
+            <button id="nudgeRBtn" class="btn small">+15°</button>
+            <button id="copyBtn" class="btn small">复制</button>
+            <button id="pasteBtn" class="btn small">粘贴</button>
           </div>
-          <div class="hint" style="margin-top:8px">方向键选择 | Delete删除 | +/-微调 | Ctrl+C/V复制粘贴</div>
-        </div>
+        </section>
 
-        <div class="panel-section">
+        <section class="card">
+          <h3>角度画笔</h3>
+          <div class="brush" id="angleBrush"></div>
+          <div class="hint">点击应用当前瓷砖 · Shift+点击在其后插入</div>
+        </section>
+
+        <section class="card">
           <h3>统计</h3>
-          <div id="statsPanel">
-            <div>总数: 0</div>
-            <div>击中: 0</div>
-            <div>Miss: 0</div>
-            <div>Combo: 0</div>
-            <div>准确率: 0%</div>
-          </div>
-        </div>
-      </div>
-    </div>
+          <div id="statsPanel" class="stats"></div>
+        </section>
 
-    <!-- 状态栏 -->
-    <div class="status-bar" id="statusBar"></div>
+        <section class="card tips">
+          <h3>快捷键</h3>
+          <div class="hint">
+            空格 播放/暂停（播放中为击打）<br>
+            ← → 切换瓷砖 · Delete 删除 · +/- 微调<br>
+            Ctrl+C / Ctrl+V 复制粘贴 · 滚轮缩放 · 拖拽平移
+          </div>
+        </section>
+      </aside>
+    </main>
+
+    <div class="toast" id="toast"></div>
   </div>
 
-  <!-- 脚本 -->
   <script src="js/parser.js"></script>
   <script src="js/level.js"></script>
   <script src="js/renderer.js"></script>

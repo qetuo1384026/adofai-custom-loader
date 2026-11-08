@@ -1,303 +1,407 @@
 /**
  * ADOFAI 自制谱加载器 - 主应用
- * 整合解析器、数据模型、渲染器、播放器、编辑器
+ * 单一渲染循环；解析/编辑/播放/判定全部整合
  */
-
 (function () {
   'use strict';
 
-  // ===== 全局状态 =====
-  let renderer, player, editor;
-  let currentLevel = null;
-  let currentFileName = '';
-
-  // ===== DOM 引用 =====
   const $ = (id) => document.getElementById(id);
 
-  const canvas = $('gameCanvas');
-  const fileInput = $('fileInput');
-  const audioInput = $('audioInput');
-  const loadBtn = $('loadBtn');
-  const playBtn = $('playBtn');
-  const pauseBtn = $('pauseBtn');
-  const stopBtn = $('stopBtn');
-  const autoplayToggle = $('autoplayToggle');
-  const invincibleToggle = $('invincibleToggle');
-  const judgmentSelect = $('judgmentSelect');
-  const tileInfo = $('tileInfo');
-  const statsPanel = $('statsPanel');
-  const angleButtons = $('angleButtons');
-  const statusBar = $('statusBar');
-  const saveBtn = $('saveBtn');
-  const zoomInBtn = $('zoomInBtn');
-  const zoomOutBtn = $('zoomOutBtn');
+  let renderer = null;
+  let player = null;
+  let editor = null;
+  let level = null;
+  let fileName = '';
 
-  // ===== 初始化 =====
+  let lastFrame = performance.now();
+
+  /* ---------------- 启动 ---------------- */
+
   function init() {
+    const canvas = $('gameCanvas');
     renderer = new AdofaiRenderer(canvas);
     player = new AdofaiPlayer(renderer);
     editor = new AdofaiEditor(player, renderer);
 
-    resizeCanvas();
-    window.addEventListener('resize', resizeCanvas);
+    sizeCanvas();
+    window.addEventListener('resize', sizeCanvas);
 
-    setupEventListeners();
-    setupAngleButtons();
-
-    player.onStateChange = updateUI;
-    player.onTileHit = (idx, perfect) => {
-      showStatus(`击中 #${idx} ${perfect ? 'Perfect!' : 'Good!'}  Combo: ${player.combo}`);
+    player.onStateChange = syncUI;
+    player.onJudge = (text, color, combo) => {
+      // 判定文本由渲染器绘制，这里只更新连击
+      updateHud();
     };
-    player.onTileMiss = (idx) => {
-      showStatus(`Miss #${idx}`, true);
-    };
-    player.onComplete = () => {
-      showStatus('谱面完成！');
-      updateStats();
+    player.onComplete = (stats) => {
+      toast(`谱面完成 · 准确率 ${stats.accuracy.toFixed(1)}% · 最高连击 ${stats.maxCombo}`);
     };
 
     editor.onChange = () => {
-      updateTileInfo();
-      showStatus('谱面已修改');
+      refreshTilePanel();
+      toast('谱面已修改');
     };
 
-    // 启动空闲渲染循环
-    idleRender();
+    bindToolbar();
+    bindAngleBrush();
+    bindEditButtons();
+    bindCanvas();
+    bindKeyboard();
+    setupDragDrop();
+
+    requestAnimationFrame(frame);
+    syncUI();
+    refreshTilePanel();
+    updateHud();
   }
 
-  function resizeCanvas() {
-    const container = canvas.parentElement;
-    renderer.resize(container.clientWidth, container.clientHeight);
+  function sizeCanvas() {
+    const box = renderer.canvas.parentElement;
+    renderer.resize(box.clientWidth, box.clientHeight);
   }
 
-  function idleRender() {
-    if (!player.isPlaying) {
-      renderer.isPlaying = false;
-      renderer.currentTileIndex = player.currentTileIndex;
-      renderer.progress = player.progress;
-      renderer.render(performance.now() / 1000);
+  /* ---------------- 渲染循环 ---------------- */
+
+  function frame(now) {
+    const dt = Math.min(0.1, (now - lastFrame) / 1000);
+    lastFrame = now;
+
+    renderer.update(dt);
+    renderer.render();
+
+    // 播放进度 / HUD 低频刷新
+    if (player.isPlaying && now - (frame._lastHud || 0) > 120) {
+      frame._lastHud = now;
+      updateHud();
     }
-    requestAnimationFrame(idleRender);
+
+    requestAnimationFrame(frame);
   }
 
-  // ===== 事件监听 =====
-  function setupEventListeners() {
-    loadBtn.addEventListener('click', () => fileInput.click());
-    fileInput.addEventListener('change', handleFileLoad);
-    audioInput.addEventListener('change', handleAudioLoad);
+  /* ---------------- 文件加载 ---------------- */
 
-    playBtn.addEventListener('click', () => {
-      if (currentLevel) player.play();
-    });
-    pauseBtn.addEventListener('click', () => player.pause());
-    stopBtn.addEventListener('click', () => { player.stop(); player.reset(); updateUI(); });
+  async function loadFromText(text, name) {
+    try {
+      const lvl = new AdofaiLevel(text);
+      if (lvl.tileCount === 0) throw new Error('谱面中没有瓷砖数据（pathData / angleData 为空）');
+      level = lvl;
+      fileName = name || 'level.adofai';
+      editor.setLevel(level);
+      player.setLevel(level);
+      refreshTilePanel();
+      updateHud();
+      syncUI();
+      toast(`已加载 ${fileName} · ${lvl.tileCount} 格 · BPM ${lvl.settings.bpm}`);
+    } catch (err) {
+      console.error(err);
+      toast('加载失败：' + err.message, true);
+    }
+  }
 
-    autoplayToggle.addEventListener('change', (e) => {
-      player.setAutoplay(e.target.checked);
-    });
-    invincibleToggle.addEventListener('change', (e) => {
-      player.setInvincible(e.target.checked);
-    });
-    judgmentSelect.addEventListener('change', (e) => {
-      player.setJudgmentMode(e.target.value);
-    });
+  async function loadFile(file) {
+    if (!file) return;
+    const text = await file.text();
+    await loadFromText(text, file.name);
+  }
 
-    saveBtn.addEventListener('click', saveLevel);
+  /* ---------------- 工具栏 ---------------- */
 
-    zoomInBtn.addEventListener('click', () => {
-      renderer.zoom = Math.min(3, renderer.zoom * 1.2);
-      if (editor.selectedTile >= 0) renderer.centerOnTile(editor.selectedTile);
-    });
-    zoomOutBtn.addEventListener('click', () => {
-      renderer.zoom = Math.max(0.2, renderer.zoom / 1.2);
-      if (editor.selectedTile >= 0) renderer.centerOnTile(editor.selectedTile);
-    });
-
-    // 编辑操作按钮
-    $('insertTileBtn').addEventListener('click', () => {
-      if (!currentLevel) return;
-      const curAngle = editor.selectedTile >= 0 ? currentLevel.angleData[editor.selectedTile] : 0;
-      if (editor.insertTile(curAngle)) updateTileInfo();
-    });
-    $('nudgeLeftBtn').addEventListener('click', () => {
-      if (editor.nudgeAngle(-15)) updateTileInfo();
-    });
-    $('nudgeRightBtn').addEventListener('click', () => {
-      if (editor.nudgeAngle(15)) updateTileInfo();
-    });
-    $('deleteTileBtn').addEventListener('click', () => {
-      if (editor.deleteTile()) updateTileInfo();
+  function bindToolbar() {
+    $('loadBtn').addEventListener('click', () => $('fileInput').click());
+    $('fileInput').addEventListener('change', (e) => {
+      loadFile(e.target.files[0]);
+      e.target.value = '';
     });
 
-    // 键盘输入
-    window.addEventListener('keydown', handleKeyDown);
-
-    // 鼠标点击瓷砖
-    canvas.addEventListener('click', handleCanvasClick);
-
-    // 播放时的击中按键
-    canvas.addEventListener('click', () => {
-      if (player.isPlaying && !player.isAutoplay) {
-        player.hit();
+    $('demoBtn').addEventListener('click', async () => {
+      try {
+        const res = await fetch('samples/sample-level.adofai');
+        if (!res.ok) throw new Error('演示谱面读取失败');
+        await loadFromText(await res.text(), 'sample-level.adofai');
+      } catch (err) {
+        toast(err.message, true);
       }
     });
+
+    $('audioBtn').addEventListener('click', () => $('audioInput').click());
+    $('audioInput').addEventListener('change', async (e) => {
+      const f = e.target.files[0];
+      if (!f) return;
+      const ok = await player.loadAudio(f);
+      toast(ok ? `音频已加载：${f.name}` : '音频解码失败', !ok);
+      e.target.value = '';
+    });
+
+    $('saveBtn').addEventListener('click', () => {
+      if (!level) return toast('请先加载谱面', true);
+      const json = level.export();
+      const blob = new Blob([json], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = fileName || 'level.adofai';
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+      toast('谱面已导出');
+    });
+
+    $('playBtn').addEventListener('click', () => player.play());
+    $('pauseBtn').addEventListener('click', () => player.pause());
+    $('stopBtn').addEventListener('click', () => { player.stop(); player.reset(); updateHud(); });
+    $('resetBtn').addEventListener('click', () => { player.stop(); player.reset(); updateHud(); toast('已重置'); });
+
+    $('autoplayToggle').addEventListener('change', (e) => player.setAutoplay(e.target.checked));
+    $('invincibleToggle').addEventListener('change', (e) => player.setInvincible(e.target.checked));
+    $('judgmentSelect').addEventListener('change', (e) => player.setMode(e.target.value));
+
+    $('zoomInBtn').addEventListener('click', () => { renderer.setZoom(renderer.zoomTarget * 1.2); });
+    $('zoomOutBtn').addEventListener('click', () => { renderer.setZoom(renderer.zoomTarget / 1.2); });
+    $('gridToggle').addEventListener('change', (e) => { renderer.showGrid = e.target.checked; });
   }
 
-  function handleKeyDown(e) {
-    // 播放中：空格/回车击中
-    if (player.isPlaying && !player.isAutoplay) {
-      if (e.code === 'Space' || e.code === 'Enter') {
+  /* ---------------- 角度画笔 ---------------- */
+
+  function bindAngleBrush() {
+    const presets = [
+      { label: 'R', value: 0, name: '右' },
+      { label: 'E', value: 45, name: '右下' },
+      { label: 'U', value: 90, name: '下' },
+      { label: 'Q', value: 135, name: '左下' },
+      { label: 'L', value: 180, name: '左' },
+      { label: 'Z', value: 225, name: '左上' },
+      { label: 'D', value: 270, name: '上' },
+      { label: 'C', value: 315, name: '右上' },
+      { label: '!', value: 999, name: 'Midspin' }
+    ];
+
+    const box = $('angleBrush');
+    presets.forEach((p) => {
+      const b = document.createElement('button');
+      b.className = 'brush-btn' + (p.value === 999 ? ' midspin' : '');
+      b.textContent = p.label;
+      b.title = `${p.name}（${p.value === 999 ? 'Midspin' : p.value + '°'}）｜点击应用，Shift+点击在其后插入`;
+      b.addEventListener('click', (e) => {
+        if (!level) return;
+        if (e.shiftKey) editor.insertTile(p.value);
+        else {
+          if (editor.selectedTile < 0) editor.selectTile(Math.max(0, player.currentTileIndex));
+          editor.modifyAngle(p.value);
+        }
+        refreshTilePanel();
+      });
+      box.appendChild(b);
+    });
+  }
+
+  function bindEditButtons() {
+    $('insertBtn').addEventListener('click', () => {
+      if (!level) return;
+      if (editor.selectedTile < 0) editor.selectTile(0);
+      const a = level.angleData[editor.selectedTile];
+      editor.insertTile(a);
+      refreshTilePanel();
+    });
+    $('deleteBtn').addEventListener('click', () => { editor.deleteTile(); refreshTilePanel(); });
+    $('prevBtn').addEventListener('click', () => { editor.selectPrev(); refreshTilePanel(); });
+    $('nextBtn').addEventListener('click', () => { editor.selectNext(); refreshTilePanel(); });
+    $('nudgeLBtn').addEventListener('click', () => { editor.nudgeAngle(-15); refreshTilePanel(); });
+    $('nudgeRBtn').addEventListener('click', () => { editor.nudgeAngle(15); refreshTilePanel(); });
+    $('copyBtn').addEventListener('click', () => { editor.copyTile(); toast('已复制当前瓷砖'); });
+    $('pasteBtn').addEventListener('click', () => { if (editor.pasteTile()) { refreshTilePanel(); toast('已粘贴'); } });
+  }
+
+  /* ---------------- 画布交互 ---------------- */
+
+  function bindCanvas() {
+    const canvas = renderer.canvas;
+    let drag = null;
+
+    canvas.addEventListener('mousedown', (e) => {
+      if (e.button === 2) return;
+      drag = { x: e.clientX, y: e.clientY, camX: renderer.cam.x, camY: renderer.cam.y, moved: false };
+    });
+
+    canvas.addEventListener('mousemove', (e) => {
+      if (!drag) return;
+      const dx = e.clientX - drag.x;
+      const dy = e.clientY - drag.y;
+      if (!drag.moved && Math.hypot(dx, dy) > 4) drag.moved = true;
+      if (drag.moved) {
+        const c = Math.cos(-renderer.rot), s = Math.sin(-renderer.rot);
+        const wx = (dx * c - dy * s) / renderer.scale;
+        const wy = (dx * s + dy * c) / renderer.scale;
+        renderer.cam.x = drag.camX - wx;
+        renderer.cam.y = drag.camY + wy;
+        renderer.camInit = true;
+      }
+    });
+
+    window.addEventListener('mouseup', (e) => {
+      const wasDrag = drag && drag.moved;
+      drag = null;
+      if (wasDrag) return;
+      if (e.target !== canvas) return;
+
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+
+      if (player.isPlaying && !player.autoplay) {
+        player.hit();
+        return;
+      }
+      // 选中瓷砖（编辑模式）
+      const idx = renderer.getTileAt(x, y);
+      if (idx >= 0) {
+        editor.selectTile(idx);
+        refreshTilePanel();
+      }
+    });
+
+    canvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      renderer.setZoom(renderer.zoomTarget * (e.deltaY > 0 ? 0.9 : 1.1));
+    }, { passive: false });
+
+    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+
+  /* ---------------- 键盘 ---------------- */
+
+  function bindKeyboard() {
+    window.addEventListener('keydown', (e) => {
+      const tag = e.target.tagName;
+      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+
+      if (e.code === 'Space') {
+        e.preventDefault();
+        if (player.isPlaying && !player.autoplay) player.hit();
+        else player.toggle();
+        syncUI();
+        return;
+      }
+      if (e.key === 'Enter' && player.isPlaying && !player.autoplay) {
         e.preventDefault();
         player.hit();
         return;
       }
-    }
 
-    // 播放控制
-    if (e.code === 'Space' && !player.isPlaying) {
-      if (currentLevel) {
-        e.preventDefault();
-        player.play();
+      switch (e.key) {
+        case 'ArrowRight': editor.selectNext(); refreshTilePanel(); break;
+        case 'ArrowLeft': editor.selectPrev(); refreshTilePanel(); break;
+        case 'Delete':
+        case 'Backspace': e.preventDefault(); editor.deleteTile(); refreshTilePanel(); break;
+        case '+':
+        case '=': editor.nudgeAngle(15); refreshTilePanel(); break;
+        case '-':
+        case '_': editor.nudgeAngle(-15); refreshTilePanel(); break;
+        default:
+          if ((e.ctrlKey || e.metaKey) && e.key === 'c') { editor.copyTile(); toast('已复制'); }
+          if ((e.ctrlKey || e.metaKey) && e.key === 'v') { editor.pasteTile(); refreshTilePanel(); }
       }
-      return;
-    }
-
-    // 编辑模式快捷键
-    if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
-
-    if (e.key === 'ArrowRight') { editor.selectNext(); updateTileInfo(); }
-    else if (e.key === 'ArrowLeft') { editor.selectPrev(); updateTileInfo(); }
-    else if (e.key === 'Delete' || e.key === 'Backspace') {
-      e.preventDefault();
-      if (editor.deleteTile()) updateTileInfo();
-    }
-    else if ((e.ctrlKey || e.metaKey) && e.key === 'c') { editor.copyTile(); showStatus('已复制瓷砖'); }
-    else if ((e.ctrlKey || e.metaKey) && e.key === 'v') { if (editor.pasteTile()) updateTileInfo(); }
-    else if (e.key === '+' || e.key === '=') { editor.nudgeAngle(15); updateTileInfo(); }
-    else if (e.key === '-' || e.key === '_') { editor.nudgeAngle(-15); updateTileInfo(); }
-  }
-
-  function handleCanvasClick(e) {
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
-    const idx = renderer.getTileAt(x, y);
-    if (idx >= 0) {
-      editor.selectTile(idx);
-      updateTileInfo();
-    }
-  }
-
-  // ===== 角度按钮 =====
-  function setupAngleButtons() {
-    editor.anglePresets.forEach((preset) => {
-      const btn = document.createElement('button');
-      btn.className = 'angle-btn';
-      btn.textContent = preset.label;
-      btn.title = `${preset.name || preset.label} (${preset.value}°)`;
-      btn.addEventListener('click', (e) => {
-        if (e.shiftKey) {
-          editor.insertTile(preset.value);
-        } else {
-          editor.modifyAngle(preset.value);
-        }
-        updateTileInfo();
-      });
-      angleButtons.appendChild(btn);
     });
-
-    const hint = document.createElement('div');
-    hint.className = 'hint';
-    hint.textContent = '点击修改当前瓷砖角度 | Shift+点击 在当前瓷砖后插入';
-    angleButtons.appendChild(hint);
   }
 
-  // ===== 文件加载 =====
-  async function handleFileLoad(e) {
-    const file = e.target.files[0];
-    if (!file) return;
+  /* ---------------- 拖拽加载 ---------------- */
 
-    try {
-      const text = await file.text();
-      const level = new AdofaiLevel(text);
-      currentLevel = level;
-      currentFileName = file.name;
-      editor.setLevel(level);
-      player.setLevel(level);
-      updateUI();
-      updateTileInfo();
-      showStatus(`已加载: ${file.name} (${level.tileCount} 个瓷砖)`);
-    } catch (err) {
-      showStatus(`加载失败: ${err.message}`, true);
-      console.error(err);
-    }
+  function setupDragDrop() {
+    const wrap = $('canvasWrap');
+    ['dragenter', 'dragover'].forEach((ev) => {
+      wrap.addEventListener(ev, (e) => { e.preventDefault(); wrap.classList.add('dropping'); });
+    });
+    ['dragleave', 'drop'].forEach((ev) => {
+      wrap.addEventListener(ev, (e) => { e.preventDefault(); wrap.classList.remove('dropping'); });
+    });
+    wrap.addEventListener('drop', async (e) => {
+      const f = e.dataTransfer.files[0];
+      if (!f) return;
+      if (/\.adofai$/i.test(f.name) || /\.json$/i.test(f.name)) loadFile(f);
+      else if (/audio\//.test(f.type)) {
+        const ok = await player.loadAudio(f);
+        toast(ok ? `音频已加载：${f.name}` : '音频解码失败', !ok);
+      } else toast('请拖入 .adofai 谱面或音频文件', true);
+    });
   }
 
-  async function handleAudioLoad(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-    const ok = await player.loadAudio(file);
-    showStatus(ok ? `音频已加载: ${file.name}` : '音频加载失败', !ok);
+  /* ---------------- 面板 / HUD ---------------- */
+
+  function syncUI() {
+    const has = !!level;
+    $('playBtn').disabled = !has || player.isPlaying;
+    $('pauseBtn').disabled = !player.isPlaying;
+    $('stopBtn').disabled = !has;
+    $('saveBtn').disabled = !has;
+    $('judgmentSelect').value = player.mode;
+    $('autoplayToggle').checked = player.autoplay;
+    $('invincibleToggle').checked = player.invincible;
+    const badge = $('modeBadge');
+    badge.textContent = JUDGMENT_MODES[player.mode].name;
+    badge.style.color = JUDGMENT_MODES[player.mode].color;
+    updateHud();
   }
 
-  // ===== 保存 =====
-  function saveLevel() {
-    if (!currentLevel) return;
-    const json = currentLevel.export();
-    const blob = new Blob([json], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = currentFileName || 'level.adofai';
-    a.click();
-    URL.revokeObjectURL(url);
-    showStatus('已保存谱面文件');
+  function updateHud() {
+    const s = player.getStats();
+    const bar = $('progressFill');
+    if (bar) bar.style.width = s.progress.toFixed(2) + '%';
+    const tEl = $('timeText');
+    if (tEl) tEl.textContent = `${fmt(s.time)} / ${fmt(s.duration)}`;
+    const cEl = $('comboText');
+    if (cEl) cEl.textContent = s.combo;
+    const aEl = $('accText');
+    if (aEl) aEl.textContent = s.accuracy.toFixed(1) + '%';
+
+    $('statsPanel').innerHTML = `
+      <div class="stat-row"><span>总格数</span><b>${s.total}</b></div>
+      <div class="stat-row"><span>击中</span><b>${s.hits}</b></div>
+      <div class="stat-row"><span>Perfect</span><b>${s.perfects}</b></div>
+      <div class="stat-row"><span>Miss</span><b>${s.misses}</b></div>
+      <div class="stat-row"><span>连击</span><b>${s.combo} / ${s.maxCombo}</b></div>
+      <div class="stat-row"><span>准确率</span><b>${s.accuracy.toFixed(1)}%</b></div>
+      <div class="stat-row"><span>判定</span><b style="color:${JUDGMENT_MODES[s.mode].color}">${s.modeName}${player.invincible ? ' · 无敌' : ''}${player.autoplay ? ' · 自动' : ''}</b></div>
+    `;
   }
 
-  // ===== UI 更新 =====
-  function updateUI() {
-    playBtn.disabled = !currentLevel || player.isPlaying;
-    pauseBtn.disabled = !player.isPlaying;
-    stopBtn.disabled = !currentLevel;
-    updateStats();
+  function fmt(t) {
+    if (!isFinite(t)) return '0:00.0';
+    const m = Math.floor(t / 60);
+    const sec = t - m * 60;
+    return `${m}:${sec.toFixed(1).padStart(4, '0')}`;
   }
 
-  function updateTileInfo() {
+  function refreshTilePanel() {
+    const box = $('tilePanel');
     const info = editor.getSelectedInfo();
     if (!info) {
-      tileInfo.innerHTML = '<div class="muted">未选中瓷砖</div>';
-      return;
+      box.innerHTML = '<div class="muted">未选中瓷砖 · 点击轨道上的方块选择</div>';
+    } else {
+      box.innerHTML = `
+        <div class="tile-head">瓷砖 <b>#${info.index}</b> / ${level ? level.tileCount : 0}</div>
+        <div class="stat-row"><span>方向角</span><b>${info.direction}°</b></div>
+        <div class="stat-row"><span>相对角度</span><b>${info.angle.toFixed(1)}°</b></div>
+        <div class="stat-row"><span>拍数</span><b>${info.beats.toFixed(3)}</b></div>
+        <div class="stat-row"><span>坐标</span><b>${info.position[0].toFixed(2)}, ${info.position[1].toFixed(2)}</b></div>
+        <div class="stat-row"><span>事件</span><b>${info.actionsCount}</b></div>
+      `;
     }
-    tileInfo.innerHTML = `
-      <div><strong>瓷砖 #${info.index}</strong></div>
-      <div>方向角: ${info.direction}°</div>
-      <div>相对角度: ${info.angle.toFixed(1)}°</div>
-      <div>拍数: ${info.beats.toFixed(3)}</div>
-      <div>位置: (${info.position[0].toFixed(2)}, ${info.position[1].toFixed(2)})</div>
-      <div>事件数: ${info.actionsCount}</div>
-    `;
+    updateHud();
   }
 
-  function updateStats() {
-    const s = player.getStats();
-    statsPanel.innerHTML = `
-      <div>总数: ${s.total}</div>
-      <div>击中: ${s.hits} (Perfect: ${s.perfect})</div>
-      <div>Miss: ${s.misses}</div>
-      <div>Combo: ${s.combo} / 最高 ${s.maxCombo}</div>
-      <div>准确率: ${s.accuracy.toFixed(1)}%</div>
-      <div>判定: ${JUDGMENT_MODES[player.judgmentMode].name} ${player.invincible ? '| 无敌' : ''} ${player.isAutoplay ? '| 自动' : ''}</div>
-    `;
+  let toastTimer = null;
+  function toast(msg, isError) {
+    const el = $('toast');
+    el.textContent = msg;
+    el.className = 'toast show' + (isError ? ' error' : '');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { el.className = 'toast'; }, 2600);
   }
 
-  function showStatus(msg, isError) {
-    statusBar.textContent = msg;
-    statusBar.className = 'status-bar' + (isError ? ' error' : '');
-    setTimeout(() => {
-      if (statusBar.textContent === msg) statusBar.textContent = '';
-    }, 3000);
-  }
-
-  // ===== 启动 =====
   window.addEventListener('DOMContentLoaded', init);
+
+  // 便于调试与自动化测试
+  window.__app = {
+    get renderer() { return renderer; },
+    get player() { return player; },
+    get editor() { return editor; },
+    get level() { return level; },
+    loadFromText,
+    loadFile
+  };
 })();

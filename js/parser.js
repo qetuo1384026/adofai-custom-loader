@@ -4,6 +4,8 @@
  *
  * 参考：ADOFAI-JS (adofaiex/ADOFAI-JS) 官方解析库实现
  */
+(function () {
+'use strict';
 
 // pathData 字符 -> 绝对角度映射表（94 个标准方向字符 + 1 个 midspin）
 const PATH_DATA_TABLE = {
@@ -249,3 +251,4 @@ window.AdofaiParser = {
   exportLevel,
   angleDataToPathData
 };
+})();

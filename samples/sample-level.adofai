@@ -2,8 +2,8 @@
 	"version": 1,
 	"settings": {
 		"version": 1,
-		"artist": "Demo Artist",
-		"song": "Sample Chart",
+		"artist": "ADOFAI",
+		"song": "Demo Chart",
 		"bpm": 120,
 		"volume": 100,
 		"offset": 0,
@@ -19,13 +19,13 @@
 		"backgroundColor": "000000",
 		"showDefaultBGIfNoImage": true
 	},
-	"angleData": [180, 90, 0, 270, 180, 90, 0, 270, 999, 90, 180, 270, 0, 90, 180, 45, 135, 225, 315, 0],
+	"angleData": [90, 90, 90, 90, 90, 90, 90, 45, 45, 45, 45, 45, 0, 0, 0, 315, 315, 315, 315, 270, 270, 270, 225, 225, 225, 180, 180, 135, 135, 90, 90, 45, 45, 0, 0, 315, 315, 270, 270, 225, 225, 180, 180, 135, 135, 90, 90, 45, 45, 0, 0],
 	"actions": [
 		{"floor": 0, "eventType": "SetSpeed", "speedType": "Multiplier", "speed": 1},
-		{"floor": 4, "eventType": "Twirl"},
-		{"floor": 8, "eventType": "Checkpoint"},
-		{"floor": 12, "eventType": "SetSpeed", "speedType": "Multiplier", "speed": 1.5},
-		{"floor": 16, "eventType": "Flash", "duration": 0.5, "color": "ffffff", "opacity": 50, "flashStyle": "Flash"}
+		{"floor": 7, "eventType": "Twirl"},
+		{"floor": 19, "eventType": "Checkpoint"},
+		{"floor": 25, "eventType": "SetSpeed", "speedType": "Multiplier", "speed": 1.25},
+		{"floor": 33, "eventType": "Twirl"}
 	],
 	"decorations": []
 }
