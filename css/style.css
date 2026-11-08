@@ -131,6 +131,41 @@ input[type="file"] { display: none; }
   background: rgba(138,255,192,0.08);
 }
 
+/* ---------- 音频偏移控件 ---------- */
+.offset-group { gap: 5px; }
+.offset-label {
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+  cursor: help;
+}
+.offset-unit { font-size: 11px; color: var(--muted); }
+
+.num-input {
+  width: 66px;
+  height: 32px;
+  padding: 0 6px;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--gold-bright);
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 6px;
+  outline: none;
+  transition: border-color .16s ease, box-shadow .16s ease, color .16s ease;
+}
+.num-input:hover { border-color: rgba(222,187,123,0.40); }
+.num-input:focus {
+  border-color: rgba(222,187,123,0.65);
+  box-shadow: 0 0 0 2px rgba(222,187,123,0.14);
+}
+.num-input.positive { color: #ffd166; border-color: rgba(255,209,102,0.50); }
+.num-input.negative { color: var(--ice); border-color: rgba(76,215,255,0.50); }
+.num-input::-webkit-outer-spin-button,
+.num-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.num-input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+
 /* ---------- 主区 ---------- */
 .main { display: flex; flex: 1; min-height: 0; }
 
@@ -284,3 +319,28 @@ input[type="file"] { display: none; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.14); border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.25); }
+
+/* ---------- 工具栏响应式 ---------- */
+.topbar {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+.topbar::-webkit-scrollbar { height: 4px; }
+.topbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.16); border-radius: 2px; }
+.brand { flex-shrink: 0; }
+.group { flex-shrink: 0; }
+
+@media (max-width: 1440px) {
+  .topbar { gap: 12px; padding: 0 12px; }
+  .group { gap: 6px; padding-left: 12px; }
+  .brand-sub { display: none; }
+}
+
+@media (max-width: 1120px) {
+  .topbar { gap: 8px; padding: 0 8px; }
+  .brand-text { display: none; }
+  .audio-status { max-width: 118px; }
+  .btn { padding: 0 10px; }
+  .offset-label { display: none; }
+}

@@ -15,6 +15,24 @@
 
   let lastFrame = performance.now();
 
+  const OFFSET_KEY = 'adofai.audioOffsetMs';
+  const OFFSET_MIN = -5000;
+  const OFFSET_MAX = 5000;
+
+  /* ---------------- 音频偏移持久化 ---------------- */
+
+  function loadStoredOffset() {
+    try {
+      const v = parseInt(localStorage.getItem(OFFSET_KEY), 10);
+      if (isFinite(v)) return Math.max(OFFSET_MIN, Math.min(OFFSET_MAX, v));
+    } catch (e) { /* localStorage 不可用 */ }
+    return 0;
+  }
+
+  function persistOffset(v) {
+    try { localStorage.setItem(OFFSET_KEY, String(v)); } catch (e) { /* 忽略 */ }
+  }
+
   /* ---------------- 启动 ---------------- */
 
   function init() {
@@ -35,6 +53,11 @@
       toast(`谱面完成 · 准确率 ${stats.accuracy.toFixed(1)}% · 最高连击 ${stats.maxCombo}`);
     };
     player.onAudioChange = () => updateAudioStatus();
+    player.onOffsetChange = (v) => {
+      persistOffset(v);
+      refreshOffsetUI();
+    };
+    player.setManualOffsetMs(loadStoredOffset());
 
     editor.onChange = () => {
       refreshTilePanel();
@@ -42,6 +65,7 @@
     };
 
     bindToolbar();
+    bindOffsetControls();
     bindAngleBrush();
     bindEditButtons();
     bindCanvas();
@@ -52,7 +76,61 @@
     syncUI();
     refreshTilePanel();
     updateHud();
+    refreshOffsetUI();
     startDemoFromQuery();
+  }
+
+  /* ---------------- 音频偏移控件 ---------------- */
+
+  function refreshOffsetUI() {
+    const input = $('offsetInput');
+    if (!input) return;
+    const v = player.manualOffsetMs;
+    if (document.activeElement !== input) input.value = String(v);
+    input.classList.toggle('positive', v > 0);
+    input.classList.toggle('negative', v < 0);
+    const resetBtn = $('offsetResetBtn');
+    if (resetBtn) resetBtn.disabled = v === 0;
+  }
+
+  function bindOffsetControls() {
+    const input = $('offsetInput');
+    if (!input) return;
+
+    const apply = (v) => {
+      const val = player.setManualOffsetMs(v);
+      persistOffset(val);
+      refreshOffsetUI();
+      return val;
+    };
+
+    const step = (dir, e) => {
+      const amount = (e && e.shiftKey) ? 10 : 1;
+      const raw = Number(input.value);
+      const base = isFinite(raw) && input.value !== '' ? raw : player.manualOffsetMs;
+      apply(base + dir * amount);
+    };
+
+    const minus = $('offsetMinusBtn');
+    const plus = $('offsetPlusBtn');
+    const reset = $('offsetResetBtn');
+    if (minus) minus.addEventListener('click', (e) => step(-1, e));
+    if (plus) plus.addEventListener('click', (e) => step(1, e));
+    if (reset) reset.addEventListener('click', () => apply(0));
+
+    input.addEventListener('focus', () => input.select());
+    input.addEventListener('input', () => {
+      const raw = input.value;
+      if (raw === '' || raw === '-' || raw === '+') return;
+      const v = Number(raw);
+      if (!isFinite(v)) return;
+      const clamped = player.setManualOffsetMs(v);
+      persistOffset(clamped);
+    });
+    input.addEventListener('blur', refreshOffsetUI);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') input.blur();
+    });
   }
 
   /** 支持 ?demo=sync|sample 直接载入示例（含音频/自动播放），便于验证 */
@@ -578,6 +656,9 @@
           const drift = info.driftMs;
           clockEl.textContent = '同步 ' + (drift >= 0 ? '+' : '') + drift.toFixed(1) + 'ms';
           clockEl.className = 'clock ok';
+        } else if (info.pendingAudio) {
+          clockEl.textContent = '同步 启动中';
+          clockEl.className = 'clock warn';
         } else {
           clockEl.textContent = '同步 回退';
           clockEl.className = 'clock warn';
@@ -648,6 +729,8 @@
     handleFiles,
     pickAudioFile,
     loadAudioFile,
-    updateAudioStatus
+    updateAudioStatus,
+    setOffset: (v) => player.setManualOffsetMs(v),
+    getOffset: () => player.manualOffsetMs
   };
 })();

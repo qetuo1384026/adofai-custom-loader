@@ -82,5 +82,38 @@ for (let ms = 0; ms <= 10000; ms += 250) {
 }
 assert(maxDrift < 1, `10 秒内双时钟漂移 ${maxDrift.toFixed(3)}ms < 1ms`);
 
+// 6. 手动音频偏移（正 = 音频延后）
+console.log('\n6. 手动音频偏移');
+const stubRenderer = { setLevel() {}, currentTileIndex: 0, progress: 0, isPlaying: false };
+const p = new window.AdofaiPlayer(stubRenderer);
+p.level = { settings: { offset: 200 } };
+
+assert(near(p.getOffsetSec(), 0.2), '未设置手动偏移时取谱面 settings.offset');
+assert(p.setManualOffsetMs(0) === 0, '初始值 0 可设置');
+
+p.setManualOffsetMs(100);
+assert(p.manualOffsetMs === 100, '输入 +100ms 保存成功');
+assert(near(p.getOffsetSec(), 0.1), '正值（音频延后）=> 有效偏移 0.2 - 0.1 = 0.1s');
+
+p.setManualOffsetMs(-500);
+assert(p.manualOffsetMs === -500, '输入 -500ms 保存成功');
+assert(near(p.getOffsetSec(), 0.7), '负值（音频提前）=> 有效偏移 0.2 + 0.5 = 0.7s');
+
+assert(p.setManualOffsetMs(9000) === 5000, '超过 +5000ms 钳制到上限');
+assert(p.setManualOffsetMs(-9000) === -5000, '低于 -5000ms 钳制到下限');
+assert(p.setManualOffsetMs('250') === 250, '字符串输入按数字解析');
+assert(p.setManualOffsetMs(NaN) === 0, '非法输入归零');
+assert(p.setManualOffsetMs(250.6) === 251, '小数四舍五入到 1ms 精度');
+
+p.setManualOffsetMs(200);
+const delayed = AdofaiAudioClock.schedule(0, p.getOffsetSec());
+assert(delayed.audioClockUsable && near(delayed.delay, 0) && near(delayed.seek, 0),
+  '手动 +200ms 且谱面 offset 200ms 相抵 => 音频立即启动');
+
+p.setManualOffsetMs(500);
+const s6 = AdofaiAudioClock.schedule(0, p.getOffsetSec());
+assert(!s6.audioClockUsable && near(s6.delay, 0.3),
+  '手动 +500ms => 音频延迟 0.3s 启动（正值音频延后）');
+
 console.log(`\n结果：${passed} 通过，${failed} 失败`);
 process.exit(failed === 0 ? 0 : 1);

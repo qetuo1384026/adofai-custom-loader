@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>A Dance of Fire and Ice · 自制谱加载器 v1.2.0</title>
+  <title>A Dance of Fire and Ice · 自制谱加载器 v1.3.0</title>
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -14,7 +14,7 @@
         <span class="logo-fire">●</span><span class="logo-ice">●</span>
         <span class="brand-text">A Dance of Fire and Ice</span>
         <span class="brand-sub">自制谱加载器</span>
-        <span class="version">v1.2.0</span>
+        <span class="version">v1.3.0</span>
       </div>
 
       <div class="group">
@@ -44,6 +44,17 @@
           <option value="standard" selected>标判 ±100ms</option>
           <option value="strict">严判 ±60ms</option>
         </select>
+      </div>
+
+      <div class="group offset-group">
+        <span class="offset-label" title="修正音画不同步：正值表示音频延后，负值表示音频提前">音频偏移</span>
+        <button id="offsetMinusBtn" class="btn icon" title="减少 1ms（按住 Shift 点击减 10ms）">−</button>
+        <input id="offsetInput" class="num-input" type="number" inputmode="numeric" step="1"
+               min="-5000" max="5000" value="0"
+               title="修正音画不同步：正值表示音频延后，负值表示音频提前；范围 -5000 ~ +5000 ms，支持 1ms 精度输入">
+        <span class="offset-unit">ms</span>
+        <button id="offsetPlusBtn" class="btn icon" title="增加 1ms（按住 Shift 点击加 10ms）">+</button>
+        <button id="offsetResetBtn" class="btn" title="重置音频偏移为 0">复位</button>
       </div>
 
       <div class="group right">

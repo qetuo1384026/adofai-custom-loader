@@ -80,6 +80,8 @@
       this.audioBuffer = null;
       this.audioSrc = null;
       this.audioName = '';
+      this.manualOffsetMs = 0;      // 手动音频偏移（正 = 音频延后）
+      this._pendingSwitchAt = 0;    // 延迟启动音频后，切换到音频时钟的 AudioContext 时间点
 
       this._raf = 0;
       this._lastPerf = 0;
@@ -90,6 +92,7 @@
       this.onJudge = null;
       this.onComplete = null;
       this.onAudioChange = null;
+      this.onOffsetChange = null;
     }
 
     /* ---------------- 配置 ---------------- */
@@ -139,8 +142,56 @@
       this._emit();
     }
 
+    /**
+     * 有效音频偏移（秒）= 谱面 settings.offset - 手动偏移
+     * 手动偏移为正 => 音频延后；为负 => 音频提前
+     */
     getOffsetSec() {
-      return AdofaiAudioClock.offsetSec(this.level && this.level.settings);
+      const settingsOffset = AdofaiAudioClock.offsetSec(this.level && this.level.settings);
+      return settingsOffset - this.manualOffsetMs / 1000;
+    }
+
+    /** 设置手动音频偏移（毫秒，-5000 ~ +5000），播放中立即生效 */
+    setManualOffsetMs(ms) {
+      let v = Number(ms);
+      if (!isFinite(v)) v = 0;
+      v = Math.round(Math.max(-5000, Math.min(5000, v)));
+      if (v === this.manualOffsetMs) return v;
+
+      // 记录旧偏移下当前谱面时间，用于保持播放连续
+      const keepTime = this.isPlaying ? this.getTime() : null;
+      this.manualOffsetMs = v;
+      if (this.onOffsetChange) this.onOffsetChange(v);
+      if (this.isPlaying && keepTime != null) this._reanchorForOffset(keepTime);
+      return v;
+    }
+
+    /**
+     * 播放中调整偏移：保持谱面时间连续，把偏移差值转移到音频播放位置
+     * （正偏移 => 音频向后回退，负偏移 => 音频向前跳过）
+     */
+    _reanchorForOffset(keepTime) {
+      if (!this.hasAudio || !this.audioCtx) return; // 无音频时由 performance 时钟驱动，无需重锚
+      const audioTime = keepTime + this.getOffsetSec();
+      const duration = this.audioBuffer ? this.audioBuffer.duration : Infinity;
+
+      this._stopAudio();
+      if (audioTime >= duration - 0.02) {
+        this.clockMode = 'perf';
+        this.startPerf = performance.now() - keepTime * 1000;
+        this._pendingSwitchAt = 0;
+        return;
+      }
+      if (audioTime >= 0) {
+        this._startAudio(audioTime, 0);
+        this.clockMode = 'audio';
+      } else {
+        // 音频需要延后启动：先用 performance 时钟，到点再切回音频时钟
+        this._startAudio(0, -audioTime);
+        this.clockMode = 'perf';
+        this.startPerf = performance.now() - keepTime * 1000;
+      }
+      this._syncAutoCursor();
     }
 
     get hasAudio() { return !!(this.audioCtx && this.audioBuffer); }
@@ -217,16 +268,20 @@
       src.buffer = this.audioBuffer;
       src.connect(this.audioCtx.destination);
       try {
-        src.start(this.audioCtx.currentTime + (delay || 0), Math.max(0, seek || 0));
+        const d = Math.max(0, delay || 0);
+        const startAt = this.audioCtx.currentTime + d;
+        src.start(startAt, Math.max(0, seek || 0));
         this.audioSrc = src;
         this.audioSeek = Math.max(0, seek || 0);
-        this.audioStartCtx = this.audioCtx.currentTime + (delay || 0);
-        this.audioStarted = true;
+        this.audioStartCtx = startAt;
+        this.audioStarted = d === 0;
+        this._pendingSwitchAt = d > 0 ? startAt : 0;
         this._lastCtxTime = -1;
         this._stallFrames = 0;
       } catch (e) {
         this.audioSrc = null;
         this.audioStarted = false;
+        this._pendingSwitchAt = 0;
       }
     }
 
@@ -237,6 +292,7 @@
         this.audioSrc = null;
       }
       this.audioStarted = false;
+      this._pendingSwitchAt = 0;
     }
 
     /* ---------------- 时钟 ---------------- */
@@ -262,11 +318,13 @@
       }
       return {
         mode: this.clockMode,
+        pendingAudio: !!this._pendingSwitchAt,
         chartTime: this.getTime(),
         perfTime,
         audioTime,
         driftMs: audioTime == null ? null : (audioTime - perfTime) * 1000,
         offsetMs: this.getOffsetSec() * 1000,
+        manualOffsetMs: this.manualOffsetMs,
         audioDuration: this.audioBuffer ? this.audioBuffer.duration : null,
         ctxState: this.audioCtx ? this.audioCtx.state : 'none'
       };
@@ -379,6 +437,17 @@
       const now = performance.now();
       const dt = Math.min(0.1, (now - this._lastPerf) / 1000);
       this._lastPerf = now;
+
+      // 音频延迟启动到点后，从 performance 时钟切换到音频主时钟
+      if (this.clockMode === 'perf' && this._pendingSwitchAt && this.audioCtx) {
+        if (this.audioCtx.currentTime >= this._pendingSwitchAt) {
+          this.audioStarted = true;
+          this.clockMode = 'audio';
+          this._pendingSwitchAt = 0;
+          this._lastCtxTime = -1;
+          this._stallFrames = 0;
+        }
+      }
 
       // 音频时钟卡住 / 播完 => 回退
       if (this.clockMode === 'audio' && this.audioCtx) {
