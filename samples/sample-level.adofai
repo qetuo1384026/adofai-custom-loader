@@ -1,0 +1,31 @@
+{
+	"version": 1,
+	"settings": {
+		"version": 1,
+		"artist": "Demo Artist",
+		"song": "Sample Chart",
+		"bpm": 120,
+		"volume": 100,
+		"offset": 0,
+		"pitch": 100,
+		"hitsound": "Kick",
+		"hitsoundVolume": 100,
+		"trackColor": "debb7b",
+		"trackColorType": "Single",
+		"trackStyle": "Neon",
+		"trackGlowIntensity": 100,
+		"beatsAhead": 4,
+		"beatsBehind": 2,
+		"backgroundColor": "000000",
+		"showDefaultBGIfNoImage": true
+	},
+	"angleData": [180, 90, 0, 270, 180, 90, 0, 270, 999, 90, 180, 270, 0, 90, 180, 45, 135, 225, 315, 0],
+	"actions": [
+		{"floor": 0, "eventType": "SetSpeed", "speedType": "Multiplier", "speed": 1},
+		{"floor": 4, "eventType": "Twirl"},
+		{"floor": 8, "eventType": "Checkpoint"},
+		{"floor": 12, "eventType": "SetSpeed", "speedType": "Multiplier", "speed": 1.5},
+		{"floor": 16, "eventType": "Flash", "duration": 0.5, "color": "ffffff", "opacity": 50, "flashStyle": "Flash"}
+	],
+	"decorations": []
+}

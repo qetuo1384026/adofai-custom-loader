@@ -1,0 +1,245 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  --bg: #0f0f1a;
+  --panel: #1a1a2e;
+  --panel-light: #252540;
+  --accent: #debb7b;
+  --fire: #ff6b4a;
+  --ice: #4ac8ff;
+  --text: #e0e0e0;
+  --muted: #888;
+  --success: #4ade80;
+  --error: #ff6b6b;
+}
+
+body {
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  height: 100vh;
+  overflow: hidden;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+/* 顶部工具栏 */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--panel);
+  border-bottom: 1px solid #333;
+  flex-wrap: wrap;
+}
+
+.toolbar h1 {
+  font-size: 16px;
+  color: var(--accent);
+  margin-right: 12px;
+  white-space: nowrap;
+}
+
+.toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  border-left: 1px solid #333;
+}
+
+.toolbar-group:first-of-type {
+  border-left: none;
+}
+
+button {
+  background: var(--panel-light);
+  color: var(--text);
+  border: 1px solid #444;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.15s;
+}
+
+button:hover:not(:disabled) {
+  background: #333358;
+  border-color: var(--accent);
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+button.primary {
+  background: var(--accent);
+  color: #1a1a2e;
+  font-weight: 600;
+}
+
+button.primary:hover:not(:disabled) {
+  background: #e8c889;
+}
+
+select {
+  background: var(--panel-light);
+  color: var(--text);
+  border: 1px solid #444;
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+label.checkbox {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+
+input[type="file"] {
+  display: none;
+}
+
+/* 主区域 */
+.main {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.canvas-container {
+  flex: 1;
+  position: relative;
+  background: var(--bg);
+}
+
+#gameCanvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* 右侧面板 */
+.sidebar {
+  width: 280px;
+  background: var(--panel);
+  border-left: 1px solid #333;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+
+.panel-section {
+  padding: 12px;
+  border-bottom: 1px solid #333;
+}
+
+.panel-section h3 {
+  font-size: 12px;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 8px;
+  letter-spacing: 0.5px;
+}
+
+#tileInfo {
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+#tileInfo .muted {
+  color: var(--muted);
+}
+
+.angle-buttons {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 4px;
+}
+
+.angle-btn {
+  padding: 8px 0;
+  font-family: monospace;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.angle-btn[data-special] {
+  background: #2a1a3e;
+}
+
+.hint {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 6px;
+  text-align: center;
+}
+
+.edit-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.edit-actions button {
+  flex: 1;
+  min-width: 70px;
+  padding: 6px 4px;
+  font-size: 12px;
+}
+
+#statsPanel {
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+/* 状态栏 */
+.status-bar {
+  padding: 6px 16px;
+  background: #111;
+  font-size: 12px;
+  color: var(--muted);
+  border-top: 1px solid #333;
+  min-height: 26px;
+}
+
+.status-bar.error {
+  color: var(--error);
+}
+
+/* 滚动条 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--panel);
+}
+
+::-webkit-scrollbar-thumb {
+  background: #444;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
